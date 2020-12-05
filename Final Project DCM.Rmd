@@ -1,0 +1,263 @@
+---
+title: "Brexit and Immigration"
+subtitle: 'How Immigration affect the political climate in the UK'
+author: "Mohamed Shehata"
+date: "01/04/2020" 
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE,results='hide'}
+
+library(knitr)
+library(tidyverse)
+library(essurvey)
+library(dplyr)
+
+#first import the data from ESS survey
+
+#setup email 
+
+set_email("mohsh720@student.liu.se")
+
+#import data for round 2016  for UK
+
+ess_uk <- import_country(country = "United Kingdom",rounds = 8)
+
+#then, create a codebook to check the variables we have 
+
+ ess_codebook <- ess_uk %>% 
+   summarize_all(function(x)attr(x, "label")) %>%
+  pivot_longer(cols = 2:ncol(.),
+               names_to = "variable",
+               values_to = "label") %>% 
+dplyr::select(-1) 
+ 
+# We can also change some values to missing
+
+ess_uk <- recode_missings(ess_uk)
+
+
+```
+
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE,results='hide'}
+
+#Prepare the data variables
+
+ess_uk$high_edu <- ifelse(test = ess_uk$eduagb2 == 1,
+                                yes = 1,
+                         ifelse(test = ess_uk$eduagb2 == 2,
+                                yes = 1,
+                         ifelse(test = ess_uk$eduagb2 == 3,
+                                yes = 1,
+                          ifelse(test = ess_uk$eduagb2 == 4,
+                                 yes = 1,
+                                 no = 0))))
+ess_uk <- ess_uk %>% 
+  mutate(party_vote = as_factor(prtvtbgb),
+         party_vote = fct_lump(party_vote, 4),
+         female = as.integer(gndr == 2),
+         safe_and_secure = as.integer(impsafe),
+         age = as.integer(agea),
+         left_right = as.integer(lrscale),
+         immigrants_acceptance = as.integer(imwbcnt),
+         trust_politicians = as.integer(trstplt),
+         income_equality = as.integer(gincdif)
+         ) %>% 
+ dplyr::select(party_vote, high_edu, female, age, left_right,
+         immigrants_acceptance, trust_politicians, income_equality, idno,safe_and_secure)
+
+
+
+
+```
+
+
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE,results='hide'}
+
+#Estimating multinomial models using the mlogit package
+
+library(nnet)
+library(broom)
+library(modelr)
+
+
+ess_uk  %>%  mutate(party_vote = fct_relevel(party_vote, "Labour")) -> ess_uk
+
+levels(ess_uk$party_vote)
+
+#estimating the model
+
+
+Model2 <- multinom(party_vote~ age + female + high_edu + income_equality+ 
+      trust_politicians +safe_and_secure + immigrants_acceptance + left_right ,
+                   data = ess_uk )
+
+
+
+```
+
+
+
+
+
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE,results='asis'}
+#put all model in  tables
+
+library(stargazer)
+
+
+stargazer(Model2,header = FALSE,
+          title = "Party Choice in UK. Multinomial Logistic Regression",
+          notes = "Data from ESS 2016.")
+
+
+
+
+```
+
+
+
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+#make a prediction graph by the third model using ggeffect 
+
+# We can get the predicted probabilities for various levels of immigration 
+# While other variables are kept at their mean
+
+library(ggeffects)
+
+party_UK_prob_gg <- ggeffect(Model2, term = "immigrants_acceptance")
+
+# This can then be piped into ggplot to get a graph
+theme_set(theme_minimal())
+
+library(scales)
+
+party_UK_prob_gg %>% 
+  ggplot(aes(x, predicted, colour = response.level, fill = response.level)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), 
+              alpha=0.2, colour = NA) +
+  scale_y_continuous(labels = label_percent()) +
+  scale_x_continuous(breaks = seq(0, 10, by = 2)) +
+  labs(title = "Fig.1 Party choice in The UK",
+       subtitle = "Estimates from multinomial logistic regression",
+       x = "Position on immigration acceptance scale (0-10)",
+       y = "Predicted probability",
+       caption = "Data from ESS 2016.",
+       colour = "Party",
+       fill = "Party")
+
+
+
+
+
+
+```
+
+
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+
+#estimating the odds ratios
+
+tidy(Model2 , exponentiate = TRUE, conf.int = TRUE) %>% 
+  filter(term != "(Intercept)")%>% 
+  ggplot(aes(term, estimate, colour = y.level)) +
+  geom_hline(yintercept = 1, colour = "red", lty = 2) +
+  coord_flip() +
+  geom_pointrange(aes(ymin = conf.low, ymax = conf.high),
+                  position = position_dodge(width = 1/2)) +
+  scale_y_log10(breaks = seq(0, 2.5, by = .5)) +
+  labs(title = "Fig.2 Odds Ratios from MNLM",
+       y = "Odds ratios",
+       x = "",
+       colour = "Outcomes (Labour ref.)",
+       caption = "Data from ESS 2016")
+
+
+```
+
+
+
+5. Conclusions:
+
+Ultimately, immigration shows a significant result in the multinomial model, and also the prediction estimates, as to how it affects the political party choice. It is apparent that individuals who consider the immigrants make the UK a worse place to live, need safety and security surroundings, males, and probably have not a high education, are more likely to vote for political parties in which they are supporting Brexit such as the Conservative Party and UK Independence Party. This implies that immigration was a critical factor in the political climate in the UK before the Brexit referendum with one year ahead in 2015, and consequently affected the Brexit referendum as well.  Moreover, for future research, we could investigate how the media channels create a cognitive bias such as availability heuristic bias for the voters, by repeating the negative news about immigration which could easily affect the voters’ opinions and choices.
+
+
+        
+*References: 
+
+Bulman, M  2017,  “Brexit: People voted to leave EU because they feared immigration, major survey finds”.Independent. Available at: <https://www.independent.co.uk/news/uk/home-news/brexit-latest-news-leave-eu-immigration-main-reason-european-union-survey-a7811651.html> (Accessed: 28 June 2017).
+
+Crowder, K., Hall, M., and Tolnay, S.E., 2011. Neighborhood immigration and native out-migration. American sociological review, 76(1), pp.25-47. 
+Dustmann, C. and Frattini, T., 2014. The fiscal effects of immigration to the UK. The economic journal, 124(580), pp.F593-F643.
+
+Khabaz D. (2018). Framing Brexit: The role, and the impact, of the national newspapers on the EU referendum. Newspaper Research Journal, vol. 39, issue 4 pp. 496-508
+
+Koch, I., 2017. What's in a vote? Brexit beyond culture wars. American Ethnologist, 44(2), pp.225-230.
+
+Mayhew, K., 2017. UK higher education and Brexit. Oxford Review of Economic Policy, 33(suppl_1), pp.S155-S161.
+
+Swidler, A., 2001. Talk of Love. How Culture Matters. Chicago: University of Chicago Press.P.56
+
+Smith, C., 2003. Moral, believing animals: Human personhood and culture. Oxford University Press.P.154
+
+Sherif, M., 1966. In common predicament: Social psychology of intergroup conflict and cooperation. Houghton Mifflin comp.
+
+Tajfel, H., Turner, J.C., Austin, W.G., and Worchel, S., 1979. An integrative theory of intergroup conflict. Organizational identity: A reader, 56, p.65.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
